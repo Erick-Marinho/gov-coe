@@ -134,7 +134,8 @@ def processar_camada_silver(use_friendly_names=False):
             'admin_appsharededitors': 'Total_Editores',
             'admin_appowner': 'ID_Proprietario',
             'admin_appownerprincipaltype': 'Email_Proprietario',
-            'admin_powerappstype': 'Tipo_App' 
+            'admin_powerappstype': 'Tipo_App',
+            'admin_appplanclassification': 'Classificacao_Plano'  # Nova coluna para ROI
         }
         
         df_apps_completo = df_apps_completo.rename(columns=mapeamento_nomes) # type: ignore
@@ -163,6 +164,15 @@ def processar_camada_silver(use_friendly_names=False):
             (df_apps_completo['Nome_Ambiente'] == "eletrobras")
         )
         print(f"Apps que precisam ser promovidos: {df_apps_completo['Promover'].sum()}")
+        
+        # 3.5 REGRA DE CLASSIFICAÇÃO: ROI (RETORNO SOBRE INVESTIMENTO)
+        print("Aplicando regra de classificação: ROI...")
+        df_apps_completo['ROI'] = df_apps_completo['Classificacao_Plano'].apply(
+            lambda x: 'Obrigatório' if x == 'Premium' else 'Opcional'
+        )
+        roi_obrigatorio = (df_apps_completo['ROI'] == 'Obrigatório').sum()
+        print(f"Apps com ROI obrigatório (Premium): {roi_obrigatorio}")
+        print(f"Apps com ROI opcional (Standard): {len(df_apps_completo) - roi_obrigatorio}")
         
         # Garantir que as colunas de data sejam do tipo datetime
         colunas_data = ['Data_Criacao_App', 'Data_Modificacao_App', 'Data_Ultimo_Acesso']
@@ -196,7 +206,9 @@ def processar_camada_silver(use_friendly_names=False):
             'Compartilhado_Tenant', 'Compartilhado_Grupos', 'Score_Complexidade', 'total_proprietarios',
             'Tipo_App',  # Adicionado para manter o tipo
             'Produtividade_Pessoal',  # Nova regra de classificação
-            'Promover'  # Regra para identificar apps que precisam ser promovidos
+            'Promover',  # Regra para identificar apps que precisam ser promovidos
+            'Classificacao_Plano',  # Classificação do plano (Standard/Premium)
+            'ROI'  # Regra ROI baseada no licenciamento
         ]
 
         # Filtrar SharePointFormApp antes de criar o DataFrame final
