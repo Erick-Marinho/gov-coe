@@ -18,12 +18,12 @@ def processar_camada_silver(use_friendly_names=False):
     """Combina dados da camada bronze, aplica lógicas de negócio e salva na camada silver."""
     try:
         # 1. CARREGAR E FILTRAR DADOS INICIAIS
-        print("📖 Carregando dados da camada Bronze...")
+        print("Carregando dados da camada Bronze...")
         df_apps = pd.read_csv(bronze_path / "apps.csv", index_col=False, dtype=str)
         print(f"Apps carregados: {df_apps.shape[0]} registros")
         
         # Filtrar apps não deletados e não SharePointFormApp logo no início
-        print("🔍 Aplicando filtros iniciais...")
+        print("Aplicando filtros iniciais...")
         df_apps['admin_appdeleted'] = df_apps['admin_appdeleted'].astype(str).str.lower()
         df_apps = df_apps[~df_apps['admin_appdeleted'].isin(['true', '1', 'yes'])]
         df_apps = df_apps[df_apps['admin_powerappstype'] != '597910003']  # SharePointFormApp
@@ -57,9 +57,6 @@ def processar_camada_silver(use_friendly_names=False):
 
         df_apps_com_metricas = pd.merge(df_apps, df_metricas, on='admin_appinternalname', how='left')
 
-        # Salvar checkpoint para Power BI antes de adicionar nomes de ambientes
-        df_apps.to_csv(silver_path / "apps_com_metricas_originais.csv", index=False)
-
         # 2.1 ADIÇÃO DE NOMES AMIGÁVEIS DE AMBIENTE (MÉTODO ROBUSTO)
         # Limpar nomes de colunas para remover espaços em branco ocultos
         df_ambientes.columns = df_ambientes.columns.str.strip()
@@ -74,7 +71,7 @@ def processar_camada_silver(use_friendly_names=False):
         df_apps_com_metricas['admin_appenvironmentid'] = df_apps_com_metricas['admin_appenvironmentid'].str.replace(r'^Default-', '', regex=True)
 
         # 2.2 ADIÇÃO DO E-MAIL DOS PROPRIETÁRIOS
-        print("📧 Adicionando e-mails dos proprietários...")
+        print("Adicionando e-mails dos proprietários...")
         
         # Carregar dados dos usuários da camada Bronze
         df_usuarios = pd.read_csv(bronze_path / "usuarios.csv", index_col=False, dtype=str)
@@ -109,7 +106,7 @@ def processar_camada_silver(use_friendly_names=False):
         
         # 3. MAPEAMENTO E LIMPEZA DE DADOS
         # 3.1 APLICAR FILTRO: REMOVER SHAREPOINTFORMAPP
-        print("🚫 Removendo SharePointFormApp (regra de negócio)...")
+        print("Removendo SharePointFormApp (regra de negócio)...")
         
         # Aplicar filtro diretamente no DataFrame final antes de salvar
         df_apps_completo = df_apps_completo[df_apps_completo['admin_powerappstype'] != '597910003']  # SharePointFormApp
@@ -119,7 +116,7 @@ def processar_camada_silver(use_friendly_names=False):
         print("Tipos de apps restantes:", np.unique(df_apps_completo['admin_powerappstype']))
 
         # 3.2 MAPEAMENTO DE NOMES AMIGÁVEIS E PREENCHIMENTO DE NULOS
-        print("🔄 Mapeando nomes de colunas e tratando valores nulos...")
+        print("Mapeando nomes de colunas e tratando valores nulos...")
         mapeamento_nomes = {
             'admin_appinternalname': 'ID_App',
             'admin_displayname_app': 'Nome_App',
@@ -155,9 +152,17 @@ def processar_camada_silver(use_friendly_names=False):
         df_apps_completo['Compartilhado_Tenant'] = df_apps_completo['Compartilhado_Tenant'].str.lower() == 'true'
         
         # 3.3 REGRA DE CLASSIFICAÇÃO: PRODUTIVIDADE PESSOAL
-        print("📱 Aplicando regra de classificação: Produtividade Pessoal...")
+        print("Aplicando regra de classificação: Produtividade Pessoal...")
         df_apps_completo['Produtividade_Pessoal'] = df_apps_completo['Usuarios_Compartilhados'] < 10
         print(f"Apps classificados como Produtividade Pessoal: {df_apps_completo['Produtividade_Pessoal'].sum()}")
+        
+        # 3.4 REGRA DE CLASSIFICAÇÃO: APLICATIVOS QUE PRECISAM SER PROMOVIDOS
+        print("Aplicando regra de classificação: Aplicativos que precisam ser promovidos...")
+        df_apps_completo['Promover'] = (
+            (df_apps_completo['Produtividade_Pessoal'] == False) & 
+            (df_apps_completo['Nome_Ambiente'] == "eletrobras")
+        )
+        print(f"Apps que precisam ser promovidos: {df_apps_completo['Promover'].sum()}")
         
         # Garantir que as colunas de data sejam do tipo datetime
         colunas_data = ['Data_Criacao_App', 'Data_Modificacao_App', 'Data_Ultimo_Acesso']
@@ -166,7 +171,7 @@ def processar_camada_silver(use_friendly_names=False):
                 df_apps_completo[col] = pd.to_datetime(df_apps_completo[col], errors='coerce')
         
         # 4. FILTRO DE ALTA ADOÇÃO
-        print("📊 Aplicando filtro de alta adoção...")
+        print("Aplicando filtro de alta adoção...")
         df_apps_completo['total_proprietarios'] = 1 + df_apps_completo['Total_Editores']
         
         # Debug: verificar quais tipos ainda existem
@@ -190,7 +195,8 @@ def processar_camada_silver(use_friendly_names=False):
             'Data_Ultimo_Acesso', 'usuarios_unicos', 'sessoes_totais', 'Usuarios_Compartilhados', 
             'Compartilhado_Tenant', 'Compartilhado_Grupos', 'Score_Complexidade', 'total_proprietarios',
             'Tipo_App',  # Adicionado para manter o tipo
-            'Produtividade_Pessoal'  # Nova regra de classificação
+            'Produtividade_Pessoal',  # Nova regra de classificação
+            'Promover'  # Regra para identificar apps que precisam ser promovidos
         ]
 
         # Filtrar SharePointFormApp antes de criar o DataFrame final
@@ -205,36 +211,22 @@ def processar_camada_silver(use_friendly_names=False):
         # Tabela principal para Power BI com apps de alta adoção
         caminho_power_bi = silver_path / "apps_com_metricas.csv"
         df_power_bi.to_csv(caminho_power_bi, index=False)
-        print(f"✅ Tabela para Power BI salva com {df_power_bi.shape[0]} registros em {caminho_power_bi}")
-
-        # 7. RESUMO POR AMBIENTE
-        print("🏢 Criando resumo por ambiente...")
-        
-        resumo_ambiente = df_power_bi.groupby(['ID_Ambiente', 'Nome_Ambiente']).agg(
-            total_apps=('ID_App', 'count'),
-            total_usuarios_unicos=('usuarios_unicos', 'sum'),
-            total_sessoes=('sessoes_totais', 'sum')
-        ).reset_index()
-        
-        caminho_resumo = silver_path / "resumo_por_ambiente.csv"
-        resumo_ambiente.to_csv(caminho_resumo, index=False)
-        print(f"✅ Resumo por ambiente salvo com {resumo_ambiente.shape[0]} registros em {caminho_resumo}")
+        print(f"Tabela para Power BI salva com {df_power_bi.shape[0]} registros em {caminho_power_bi}")
 
         print("\nCamada Silver processada com sucesso!")
         # Retorna um dicionário com as contagens para o resumo final
         return {
-            "apps_com_metricas": df_power_bi.shape[0],
-            "resumo_por_ambiente": resumo_ambiente.shape[0]
+            "apps_com_metricas": df_power_bi.shape[0]
         }
 
     except FileNotFoundError as e:
-        print(f"❌ Erro: Arquivo não encontrado na camada Bronze. Detalhes: {e}")
+        print(f"Erro: Arquivo não encontrado na camada Bronze. Detalhes: {e}")
         return {}  # Retornar dicionário vazio em caso de falha
     except KeyError as e:
-        print(f"❌ Erro crítico no pipeline: {e}")
+        print(f"Erro crítico no pipeline: {e}")
         return {}  # Retornar dicionário vazio em caso de falha
     except Exception as e:
-        print(f"❌ Ocorreu um erro inesperado na camada Silver: {e}")
+        print(f"Ocorreu um erro inesperado na camada Silver: {e}")
         return {}  # Retornar dicionário vazio em caso de falha
 
 if __name__ == '__main__':
