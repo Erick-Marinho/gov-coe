@@ -1,0 +1,16 @@
+[project]
+name = "coe-governanca"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "delta-spark>=4.0.0",
+    "ipykernel>=6.29.5",
+    "openpyxl>=3.1.5",
+    "pandas>=2.3.0",
+    "plotly>=6.1.2",
+    "pyarrow>=20.0.0",
+    "pyspark>=4.0.0",
+    "seaborn>=0.13.2",
+]
